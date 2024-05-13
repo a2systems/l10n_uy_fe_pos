@@ -25,10 +25,18 @@ class PosOder(models.Model):
             new_move = order._create_invoice(move_vals)
 
             order.write({'account_move': new_move.id, 'state': 'invoiced'})
-            new_move.sudo().with_company(order.company_id).with_context(skip_invoice_sync=True).action_post()
-            new_move.btn_pull_pdf()
+            pay_later = None
+            for payment in order.payment_ids:
+                if not payment.payment_method_id.journal_id:
+                    pay_later = True
+            if pay_later and len(order.payment_ids) > 1:
+                raise ValidationError('No puede mezclar medios de pago')
+            if not pay_later:
+                new_move.sudo().with_company(order.company_id).with_context(skip_invoice_sync=True).action_post()
+                new_move.btn_pull_pdf()
             moves += new_move
-            payment_moves = order._apply_invoice_payments()
+            if not pay_later:
+                payment_moves = order._apply_invoice_payments()
 
             if order.session_id.state == 'closed':  # If the session isn't closed this isn't needed.
                 # If a client requires the invoice later, we need to revers the amount from the closing entry, by making a new entry for that.
